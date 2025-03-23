@@ -1,0 +1,185 @@
+---
+title:  ANALISIS EXPLORATORIO DE DATOS PARA MODELADO PRONOSTICO 
+author: Percy Soto Becerra
+---
+
+## 📦 Paquetes necesarios
+
+```{r}
+clear_all()  # Elimina todos los objetos del entorno
+
+# Carga paquetes necesarios y verifica versiones
+load_and_check_versions(
+  rio,             # Importación/exportación de datos
+  tidyverse,       # Manipulación y visualización de datos
+  here,            # Manejo de rutas relativas
+  kableExtra,      # Mejor presentación de tablas
+  naniar,          # Análisis de valores perdidos
+  visdat,          # Visualización de datos
+  knitr,           # Generación de reportes
+  scales,          # Escalas de gráficos
+  skimr           # Resumen de datos
+) 
+```
+
+## 📥 Importar datos
+
+```{r}
+data_tidy <- import(here::here("data", "tidy", "data_tidy.rds"), trust = TRUE)
+```
+
+
+## 📁 Asegurar estructura correcta del dataset
+
+```{r}
+data_tidy <- data_tidy %>%
+  mutate(
+    death_d = as.numeric(death_d),
+    death_f = factor(death_d, labels = c("Vivo", "Muerto"))
+  )
+```
+
+## 📊 1. Resumen general
+
+```{r}
+skim(data_tidy) 
+```
+
+## 🔍 2. Análisis de valores perdidos
+
+```{r}
+# Tabla de porcentajes de missing con categorías
+missing_summary <- data_tidy %>%
+  summarise(across(everything(), ~ mean(is.na(.)) * 100)) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Porcentaje_missing") %>%
+  mutate(Nivel_missing = case_when(
+    Porcentaje_missing == 0 ~ "✅ Sin datos perdidos",
+    Porcentaje_missing < 5 ~ "🟢 <5%",
+    Porcentaje_missing >= 5 & Porcentaje_missing < 10 ~ "🟡 [5%,10%)",
+    Porcentaje_missing >= 10 & Porcentaje_missing < 20 ~ "🟠 [10%,20%)",
+    Porcentaje_missing >= 20 & Porcentaje_missing < 30 ~ "🔶 [20%,30%)",
+    Porcentaje_missing >= 30 ~ "🔴 ≥30%"
+  )) %>%
+  arrange(desc(Porcentaje_missing))
+
+# Tabla detallada
+missing_summary %>%
+  kable("html", digits = 2, caption = "Porcentaje de valores perdidos por variable") %>%
+  kable_styling(full_width = FALSE)
+```
+
+
+```{r}
+# Gráfico de barras con categoría de datos completos
+ggplot(missing_summary, aes(x = reorder(Variable, Porcentaje_missing), y = Porcentaje_missing, fill = Nivel_missing)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_manual(values = c(
+    "✅ Sin datos perdidos" = "#66c2a5",
+    "🟢 <5%" = "#b2df8a",
+    "🟡 [5%,10%)" = "#ffff99",
+    "🟠 [10%,20%)" = "#fdb462",
+    "🔶 [20%,30%)" = "#fb8072",
+    "🔴 ≥30%" = "#e41a1c"
+  )) +
+  labs(title = "Porcentaje de valores perdidos por variable",
+       x = NULL, y = "% Missing", fill = "Categoría") +
+  theme_minimal()
+```
+
+
+```{r}
+# Matriz de valores perdidos (útil para patrones)
+vis_miss(data_tidy, cluster = TRUE) +
+  labs(title = "Matriz de datos faltantes agrupados por patrón")
+```
+
+## 📈 3. Distribuciones de variables numéricas y outliers
+
+```{r}
+# Histograma
+data_tidy %>%
+  select(where(is.numeric)) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Valor") %>%
+  ggplot(aes(x = Valor)) +
+  geom_histogram(bins = 30, fill = "lightblue", color = "black") +
+  facet_wrap(~ Variable, scales = "free") +
+  theme_minimal() +
+  labs(title = "Distribuciones de variables numéricas")
+
+# Boxplots con outliers
+data_tidy %>%
+  select(where(is.numeric)) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "Valor") %>%
+  ggplot(aes(y = Valor)) +
+  geom_boxplot(outlier.color = "red", fill = "lightblue") +
+  facet_wrap(~ Variable, scales = "free") +
+  theme_minimal() +
+  labs(title = "Boxplots de variables numéricas (detectando outliers)")
+```
+
+## 📊 4. Distribución de variables categóricas
+
+```{r}
+cat_vars <- data_tidy %>%
+  select(where(~ is.factor(.) || is.character(.))) %>%
+  names()
+
+freq_tables <- map(cat_vars, function(var) {
+  data_tidy %>%
+    count(.data[[var]]) %>%
+    mutate(Variable = var) %>%
+    rename(Valor = 1, Frecuencia = 2)
+}) %>%
+  bind_rows()
+
+freq_tables %>%
+  kable("html", caption = "Distribución de variables categóricas") %>%
+  kable_styling(full_width = FALSE)
+```
+
+## 🧮 5. Distribución del desenlace
+
+```{r}
+data_tidy %>%
+  count(death_f) %>%
+  kable("html", caption = "Distribución del desenlace") %>%
+  kable_styling(full_width = FALSE)
+
+ggplot(data_tidy, aes(x = death_f)) +
+  geom_bar(fill = "tomato") +
+  labs(title = "Frecuencia del desenlace (mortalidad)", x = "Desenlace", y = "Frecuencia") +
+  theme_minimal()
+```
+
+## 🧩 6. Relación entre desenlace y variables categóricas
+
+```{r}
+cross_tabs <- map(cat_vars, function(var) {
+  data_tidy %>%
+    filter(!is.na(death_f)) %>%
+    count(.data[[var]], death_f) %>%
+    pivot_wider(names_from = death_f, values_from = n, values_fill = 0) %>%
+    mutate(Variable = var)
+}) %>%
+  bind_rows()
+
+cross_tabs %>%
+  kable("html", caption = "Tablas cruzadas entre desenlace y predictores categóricos") %>%
+  kable_styling(full_width = FALSE)
+```
+
+## 📉 7. Patrón de NA según desenlace
+
+```{r}
+gg_miss_fct(data_tidy, fct = death_f) +
+  labs(title = "Patrón de valores perdidos según desenlace")
+```
+
+
+## Ticket de Reproducibilidad
+
+```{r}
+sessionInfo()
+```
+

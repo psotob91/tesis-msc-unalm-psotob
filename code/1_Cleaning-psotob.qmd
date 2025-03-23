@@ -1,0 +1,473 @@
+---
+title: "Validación de puntaje de riesgo ISARIC4C para pronóstico de mortalidad en pacientes con COVID-19 evaluados en la admisión al servicio de emergencias en un hospital de referencia nacional en Lima, Perú."
+
+subtitle: "Reporte de Procesamiento de Datos"
+
+author: 
+  - name: "Percy Soto Becerra"
+    url: https://github.com/psotob91
+    
+date: last-modified
+
+format:
+  html:
+    self-contained: true
+    number-sections: true
+    number-depth: 3
+    anchor-sections: true
+    code-tools: true
+    code-fold: true
+    code-link: true
+    theme: journal
+    toc: true
+    toc-depth: 3
+    toc-location: right
+    lang: es
+    
+editor: source
+
+execute: 
+  echo: true
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+##****************************************************************
+##  1. Configuración de ambiente y paquetes                     **----
+##****************************************************************
+
+
+# Removing all objects including loaded libraries
+rm(list = ls(all = TRUE))
+
+# Installing and loading packages
+if (!require("pacman")) {
+  install.packages("pacman")
+}
+
+pacman::p_unload("all") 
+
+# Unloading all package except base
+pacman::p_load(
+  tidyverse, 
+  here, 
+  labelled, 
+  Hmisc, 
+  lubridate,
+  tidyREDCap, 
+  janitor, 
+  skimr, 
+  readxl, 
+  glue, 
+  summarytools, 
+  kableExtra, 
+  rms, 
+  pander, 
+  gtsummary,
+  flextable, 
+  ggbeeswarm, 
+  patchwork, 
+  precrec, 
+  downlit, 
+  xml2
+) 
+
+st_options(plain.ascii = FALSE, style = "rmarkdown")
+    #> De acuerdo con: https://cran.r-project.org/web/packages/summarytools/vignettes/rmarkdown.html
+```
+
+## Importar datos
+
+```{r}
+#| label: importar
+#| include: false
+
+##****************************************************************
+##  2. Importacion de Datos                                     **----                                
+##****************************************************************
+
+data_raw <- readRDS(paste0(here::here(), "/Data/Tidy/data_raw.rds"))
+```
+
+## Inspección de datos
+
+::: {.panel-tabset}
+
+### Índice
+
+- Glimpse
+
+- Frequencies
+
+- Descriptive Statistics
+
+- Data Frame Summary
+
+### Glimpse
+
+```{r}
+#| results: markup
+data_raw %>% 
+  glimpse()
+```
+
+###
+
+```{r}
+#| output: asis
+data_raw %>%  
+  freq()
+```
+
+```{r}
+#| output: asis
+data_raw %>%  
+  descr()
+```
+
+```{r}
+#| output: asis
+dfSummary(data_raw, 
+          plain.ascii  = FALSE,
+          style        = 'grid',
+          graph.magnif = 0.85,
+          varnumbers = FALSE,
+          valid.col    = FALSE,
+          tmp.img.dir  = "/tmp")
+```
+
+:::
+
+## Preparación de datos
+
+```{r}
+## Cleaning of variables for predictive scores
+data <- 
+  data_raw %>%
+  ### ISARIC-4C----
+  mutate(
+    #### Fecha de ingreso----
+    fecha_admin = date(ymd_hm(emerg_admin_fecha)), 
+  
+    ### Criterios de elegibilidad----
+    
+    ### Otras caracteristicas relevantes----
+
+    
+    #### Age----
+    agecat = case_when(
+      edad < 50 ~ "<50", 
+      edad >= 50 & edad < 60 ~ "50-59", 
+      edad >= 60 & edad < 70 ~ "60-69", 
+      edad >= 70 & edad < 80 ~ "70-79", 
+      edad >= 80 ~ ">=80", 
+      TRUE ~ as.character(NA)
+    ), 
+    agecat = factor(agecat, 
+                    levels = c("<50", "50-59", "60-69", "70-79", ">=80")), 
+    score4c_age = case_when(
+      edad < 50 ~ 0L, 
+      edad >= 50 & edad < 60 ~ 2L, 
+      edad >= 60 & edad < 70 ~ 4L, 
+      edad >= 70 & edad < 80 ~ 6L, 
+      edad >= 80 ~ 7L, 
+      TRUE ~ as.integer(NA)
+    ), 
+    
+    #### Sex at birth----
+    sex = case_when(
+      sexo == "Femenino" ~ "Female", 
+      sexo == "Masculino" ~ "Male", 
+      TRUE ~ as.character(NA)
+    ), 
+    score4c_sex = case_when(
+      sexo == "Femenino" ~ 0L, 
+      sexo == "Masculino" ~ 1L, 
+      TRUE ~ as.integer(NA)
+    ), 
+    
+    #### Number of comorbidities----
+    across(c(com_fcc, com_im, com_epoc, com_er, com_erc_modsev, com_hepa_leve, 
+           com_hepa_modsev, com_demen, com_ecv, com_tia, com_hemip, com_etc, 
+           com_dmnc, com_dmc, com_sida, inm_vih, com_tsol_loc, com_tsol_met, 
+           com_leuc, com_linf, obesidad_sino), ~ recode_factor(., 
+                                                        "No (historia lo indica)" = "No", 
+                                                        "Información no disponible en la historia" = "No", 
+                                                        "Sí (historia lo indica)" = "Yes")), 
+    across(c(com_fcc, com_im, com_epoc, com_er, com_erc_modsev, com_hepa_leve, 
+           com_hepa_modsev, com_demen, com_ecv, com_tia, com_hemip, com_etc, 
+           com_dmnc, com_dmc, com_sida, inm_vih, com_tsol_loc, com_tsol_met, 
+           com_leuc, com_linf, obesidad_sino), ~ as.integer(.) - 1), 
+    ncomorb1 = com_fcc + com_im + com_epoc + com_er + com_erc_modsev + 
+      com_hepa_leve + com_hepa_modsev + com_demen + com_ecv, com_tia + 
+      com_hemip + com_etc + com_dmnc + com_dmc + com_sida + inm_vih + 
+      com_tsol_loc + com_tsol_met + com_leuc + com_linf + obesidad_sino, 
+    ncomorb2 = com_fcc + com_im + com_epoc + com_erc_modsev + 
+      com_hepa_leve + com_hepa_modsev + com_demen + com_ecv, com_tia + 
+      com_hemip + com_etc + com_dmnc + com_dmc + com_sida + inm_vih + 
+      com_tsol_loc + com_tsol_met + com_leuc + com_linf + obesidad_sino, 
+    ncomorb1cat = case_when(
+      ncomorb1 == 0 ~ "0", 
+      ncomorb1 == 1 ~ "1", 
+      ncomorb1 >= 2 ~ ">=2", 
+      TRUE ~ as.character(NA)
+    ), 
+    score4c_ncomorb1 = case_when(
+      ncomorb1 == 0 ~ 0L, 
+      ncomorb1 == 1 ~ 1L, 
+      ncomorb1 >= 2 ~ 2L, 
+      TRUE ~ as.integer(NA)
+    ), 
+   ncomorb2cat = case_when(
+      ncomorb2 == 0 ~ "0", 
+      ncomorb2 == 1 ~ "1", 
+      ncomorb2 >= 2 ~ ">=2", 
+      TRUE ~ as.character(NA)
+    ), 
+    score4c_ncomorb2 = case_when(
+      ncomorb2 == 0 ~ 0L, 
+      ncomorb2 == 1 ~ 1L, 
+      ncomorb2 >= 2 ~ 2L, 
+      TRUE ~ as.integer(NA)
+    ), 
+    across(c(ncomorb1cat, ncomorb2cat), ~ factor(., levels = c("0", "1", ">=2"))), 
+   
+   #### Respiratory rate----
+   rr = case_when(
+     sv_fr_res < 20 ~ "<20", 
+     sv_fr_res >= 20 & sv_fr_res < 30 ~ "20-29", 
+     sv_fr_res >= 30  ~ ">=30"
+   ), 
+   rr = factor(rr, levels = c("<20", "20-29", ">=30")), 
+   score_4c_rr = case_when(
+     sv_fr_res < 20 ~ 0L, 
+     sv_fr_res >= 20 & sv_fr_res < 30 ~ 1L, 
+     sv_fr_res >= 30  ~ 2L, 
+     TRUE ~ as.integer(NA)
+   ), 
+   
+   #### Peripheral oxygen saturation----
+   across(c(sv_satodisp_res, sv_satoamb_res), ~ na_if(., "NI")), 
+   across(c(sv_satodisp_res, sv_satoamb_res), ~ na_if(., "")), 
+   across(c(sv_satodisp_res, sv_satoamb_res), ~ as.numeric(.)), 
+   sv_satoamb_res = replace(sv_satoamb_res, sv_satoamb_res == 0.8, 80), 
+   sato1 = case_when(
+     sv_satoamb_res >= 92 ~ ">=92", 
+     sv_satoamb_res < 92 ~ "<92", 
+     TRUE ~ as.character(NA)
+   ), 
+   score4c_sato1 = case_when(
+     sv_satoamb_res >= 92 ~ 0L, 
+     sv_satoamb_res < 92 ~ 2L, 
+     TRUE ~ as.integer(NA)
+   ), 
+   sato2 = case_when(
+     sv_satoamb_res >= 92 ~ ">=92", 
+     sv_satoamb_res < 92 | (sv_satodisp_res < 92 & is.na(sv_satoamb_res)) | 
+       (oxigen_tipo %in% c("Cánula simple", "Mascarilla simple", 
+                           "Mascarilla venturi", "Mascarilla de reservorio", 
+                           "Cánula nasal simple + mascarilla de reservorio", 
+                           "Cánula de Alto Flujo", 
+                           "Ventilador mecánico") & is.na(sv_satoamb_res)) ~ "<92", 
+        TRUE ~ as.character(NA)
+   ), 
+   score4c_sato2 = case_when(
+     sv_satoamb_res >= 92 ~ 0L, 
+     sv_satoamb_res < 92 | (sv_satodisp_res < 92 & is.na(sv_satoamb_res)) | 
+       (oxigen_tipo %in% c("Cánula simple", "Mascarilla simple", 
+                           "Mascarilla venturi", "Mascarilla de reservorio", 
+                           "Cánula nasal simple + mascarilla de reservorio", 
+                           "Cánula de Alto Flujo", 
+                           "Ventilador mecánico") & is.na(sv_satoamb_res))  ~ 2L, 
+     TRUE ~ as.integer(NA)
+     ), 
+  across(c(sato1, sato2), ~ factor(., levels = c(">=92", "<92"))), 
+   
+   #### Glasgow coma scale - proxy by confusion an altered mental status----
+   coma1 = case_when(
+     sint_confusion %in% c("No (historia lo indica)", 
+                           "Información no disponible en la historia") ~ "15", 
+     sint_confusion == "Sí (historia lo indica)" ~ "<15", 
+     TRUE ~ as.character(NA)
+   ), 
+   score4c_coma1 = case_when(
+     sint_confusion %in% c("No (historia lo indica)", 
+                           "Información no disponible en la historia") ~ 0L, 
+     sint_confusion == "Sí (historia lo indica)" ~ 2L, 
+     TRUE ~ as.integer(NA)
+   ), 
+  coma2 = case_when(
+     (sint_confusion %in% c("No (historia lo indica)", 
+                           "Información no disponible en la historia") & 
+       alter_mental %in% c("No (historia lo indica)", 
+                           "Información no disponible en la historia")) | 
+       (sint_confusion %in% c("No (historia lo indica)", 
+                           "Información no disponible en la historia") & 
+       is.na(alter_mental)) | 
+       (is.na(sint_confusion) & alter_mental %in% 
+          c("No (historia lo indica)", 
+            "Información no disponible en la historia")) ~ "15", 
+     sint_confusion == "Sí (historia lo indica)" | alter_mental == "Sí (historia lo indica)" ~ "<15", 
+     TRUE ~ as.character(NA)
+   ), 
+   score4c_coma2 = case_when(
+     (sint_confusion %in% c("No (historia lo indica)", 
+                           "Información no disponible en la historia") & 
+       alter_mental %in% c("No (historia lo indica)", 
+                           "Información no disponible en la historia")) | 
+       (sint_confusion %in% c("No (historia lo indica)", 
+                           "Información no disponible en la historia") & 
+       is.na(alter_mental)) | 
+       (is.na(sint_confusion) & alter_mental %in% 
+          c("No (historia lo indica)", 
+            "Información no disponible en la historia")) ~ 0L, 
+     sint_confusion == "Sí (historia lo indica)" | alter_mental == "Sí (historia lo indica)" ~ 2L, 
+     TRUE ~ as.integer(NA)
+   ), 
+  across(c(coma1, coma2), ~ factor(., levels = c("15", "<15"))),
+  
+  #### Urea original (mg/dL)----
+  urea = lab_res_urea * 0.357/2.1428, #< Convierte mg/dL a mmol/L
+  ureacat = case_when(
+    urea < 7 ~ "<7", 
+    urea >= 7 & urea <= 14 ~ "7-14", 
+    urea > 14 ~ ">14", 
+    TRUE ~ as.character(NA)
+  ), 
+  ureacat = factor(ureacat, levels = c("<7", "7-14", ">14")), 
+  score4c_urea = case_when(
+    urea < 7 ~ 0L, 
+    urea >= 7 & urea <= 14 ~ 1L, 
+    urea > 14 ~ 3L, 
+    TRUE ~ as.integer(NA)
+  ), 
+  
+   #### C reactive protein original (mg/dL)----
+  pcr = lab_res_pcr, 
+  pcrcat = case_when(
+    pcr < 5 ~ "<5", 
+    pcr >= 5 & pcr < 10 ~ "5-9.9", 
+    pcr >= 10 ~ ">= 10", 
+    TRUE ~ as.character(NA)
+  ), 
+  pcrcat = factor(pcrcat, levels = c("<5", "5-9.9", ">= 10")), 
+  score4c_pcr = case_when(
+    pcr < 5 ~ 0L, 
+    pcr >= 5 & pcr < 10 ~ 1L, 
+    pcr >= 10 ~ 2L, 
+    TRUE ~ as.integer(NA)
+  ), 
+  #### Puntaje ISARIC4C----
+  score4c = score4c_age +  score4c_sex + score4c_ncomorb2 + score_4c_rr + score4c_sato2 + score4c_coma2 + score4c_urea + score4c_pcr, 
+score4c_gr = factor(case_when(
+    score4c <= 3 ~ "Low (0-3)", 
+    score4c >= 4 & score4c <= 8 ~ "Intermediate (4-8)", 
+    score4c >= 9 & score4c <= 14 ~ "High (9-14)", 
+    score4c >= 15 ~ "Very high (>= 15)", 
+    TRUE ~ as.character(NA)
+  ), level = c("Low (0-3)", "Intermediate (4-8)", "High (9-14)", "Very high (>= 15)")), 
+  death = case_when(
+    fallec %in% c("No (historia lo indica)") ~ "Alive", 
+    fallec == "Sí (historia lo indica)" ~ "Death", 
+    TRUE ~ as.character(NA)
+  ), 
+  death2 = case_when(
+    fallec %in% c("No (historia lo indica)") ~ 0,
+    fallec == "Sí (historia lo indica)" ~ 1, 
+    TRUE ~ as.numeric(NA)
+  ), 
+  score4c_risk = case_when(
+    score4c_gr == "Low (0-3)" ~ 1.2, 
+    score4c_gr == "Intermediate (4-8)" ~ 9.9, 
+    score4c_gr == "High (9-14)" ~ 31.4, 
+    score4c_gr == "Very high (>= 15)" ~ 61.5 
+    )
+  ) %>% 
+  set_variable_labels(
+    sexo = "Sexo", 
+    edad = "Edad (años)", 
+    agecat = "Grupo etario", 
+    ncomorb2 = "Número de comorbilidades", 
+    ncomorb2cat = "Número de comorbilidades", 
+    com_fcc = "Falla cardíaca congestiva", 
+    com_im = "Antecedente de infarto agudo a miocardio", 
+    com_epoc = "Enfermedad pulmonar obstructiva crónica", 
+    com_er = "Enfermedad renal crónica ", 
+    com_erc_modsev = "Enfermedad renal crónica - moderada a severa", 
+    com_hepa_leve = "Enfermedad hepática leve", 
+    com_hepa_modsev = "Enfermedad hepática severa",
+    com_demen = "Demencia", 
+    com_ecv = "Enfermedad cerebrovascular", 
+    com_tia = "Accidente isquémico transitorio", 
+    com_hemip = "Hemiplejía", 
+    com_etc = "Emfermedad del tejido conectivo", 
+    com_dmnc = "Diabetes mellitus no complicada", 
+    com_dmc = "Diabetes mellitus complicada", 
+    com_sida = "SIDA", 
+    inm_vih = "VIH", 
+    com_tsol_loc = "Tumor sólido localizado", 
+    com_tsol_met = "Tumor sólido metastásico",  
+    com_leuc = "Leucemia", 
+    com_linf = "Linfoma", 
+    obesidad_sino = "Obesidad clínica", 
+    sv_fr_res = "Frecuencia respiratoria", 
+    rr = "Niveles de frecuencia respiratoria", 
+    sv_satoamb_res = "Saturación de Oxígeno con aire de ambiente", 
+    score4c_sato1 = "Niveles de saturación de Oxígeno con aire de ambiente", 
+    sato1 = "Niveles de saturación de Oxígeno con aire de ambiente", 
+    score4c_sato2 = "Niveles de saturación de Oxígeno con aire de ambiente y soporte de oxigeno", 
+    sato2 = "Niveles de saturación de Oxígeno con aire de ambiente y soporte de oxigeno", 
+    coma2 = "Nivel de conciencia", 
+    urea = "Úrea (mmol/L)", 
+    ureacat = "Niveles de urea (mmol/L)",
+    pcr = "Proteína C reactiva (mg/dL)", 
+    pcrcat = "Niveles de Proteína C reactiva (mg/dL)", 
+    death = "Muerte"
+  )
+```
+
+De acuerdo con la web oficial de la calculadora, los riesgos predichos de mortalidad a 30 días de cada puntaje de ISARIC 4C Mortality son los siguientes:
+
+```{r}
+#| fig-align: center
+#| out-width: 80%
+knitr::include_graphics("images/4CScoreProbability.png")
+```
+
+
+Dar click en el siguiente [Enlace](https://isaric4c.net/risk/#:~:text=The%204C%20Mortality%20Score%20and,produced%20by%20the%20ISARIC4C%20consortium.) web para ir a la dirección web citada. También se usaron las probabilidades recalibradas en una evaluación prospectiva [Enlace](https://thorax.bmj.com/content/early/2021/11/21/thoraxjnl-2021-217629)
+
+Se crea un data.frame con los puntajes y las probabilidades predichas del modelo original:
+
+```{r}
+score4c_papers <- data.frame(
+  score4c = 0:21, 
+  risk_pred_web = c(0, 0, 1, 2, 5, 7, 8, 12, 14, 19, 23, 27, 33, 40, 45, 52, 59, 66, 76, 77, 83, 88) / 100,  #< Ver enlace web
+  risk_pred_orig = c(0, 0.3, 0.8, 2.3, 4.8, 7.5, 7.8, 11.7, 14.4, 19.2, 22.9, 26.9, 32.9, 40.1, 44.6, 51.6, 59.1, 66.1, 75.8, 77.3, 82.9, 87.5) / 100, # ver prospective validation
+  risk_pred_recal = c(0.4, 0.9, 1.3, 2.5, 4.0, 5.8, 8.7, 10.5, 14.5, 19.9, 25.3, 31.2, 37.7, 44.7, 51.3, 57.3, 64.0, 68.7, 77.6, 79.6, 87.3, 96.1) / 100
+)
+
+score4c_papers %>% 
+  kbl() %>%
+  kable_styling()
+```
+
+```{r}
+data2 <- 
+  data %>% 
+  left_join(score4c_papers, by = "score4c") 
+
+data2 %>% 
+  glimpse()
+```
+
+## Guardar tabla de datos limpia
+
+```{r}
+saveRDS(data2, paste0(here::here(), "/Data/Tidy/isaric_data.rds"))
+```
+

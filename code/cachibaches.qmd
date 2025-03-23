@@ -1,0 +1,541 @@
+---
+title: "Chachibaches para reciclar"
+format: html
+---
+
+## Quarto
+
+# Análisis de casos completos
+
+## Eliminación de datos perdidos
+
+```{r}
+data_cal <- 
+  data2 %>% 
+  select(score4c, risk_pred_orig, risk_pred_recal, death, death2) %>% 
+  drop_na(score4c, death2)
+```
+
+## Tabla 1 - Puntajes de modelo pronóstico ISARIC 4C Mortality
+
+```{r}
+library(gt)
+score4c_papers %>% 
+  gt() %>% 
+  gtsave(here("Tables/Table1.docx"))
+```
+
+```{r}
+library(gt)
+score4c_papers %>% 
+  gt()
+```
+
+
+## Tabla 2- Características de la población de estudio
+
+```{r}
+data2 %>% 
+  drop_na(score4c, death2) %>%
+  select(sexo, edad, agecat, ncomorb2cat, com_fcc, com_im, com_epoc, 
+         com_er, com_erc_modsev, com_hepa_leve, com_hepa_modsev, com_demen, 
+         com_ecv, com_tia, com_hemip, com_etc, com_dmnc, com_dmc, com_sida, 
+         inm_vih, com_tsol_loc, com_tsol_met,  com_leuc, com_linf, obesidad_sino, 
+         sv_fr_res, rr, sv_satoamb_res, sato2, coma2, urea, ureacat, 
+         pcr, pcrcat, death) %>%  
+  tbl_summary() %>% 
+  bold_labels() -> table2
+
+table2
+```
+
+
+
+```{r}
+table2 %>%  
+  as_flex_table() %>%  
+  save_as_docx(path = here("Tables/Table2.docx"))
+```
+
+## Tabla 3 - Características de la población de estudio según estado de muerte
+
+```{r}
+data2 %>% 
+  drop_na(score4c, death2) %>% 
+  select(sexo, edad, agecat, ncomorb2cat, com_fcc, com_im, com_epoc, 
+         com_er, com_erc_modsev, com_hepa_leve, com_hepa_modsev, com_demen, 
+         com_ecv, com_tia, com_hemip, com_etc, com_dmnc, com_dmc, com_sida, 
+         inm_vih, com_tsol_loc, com_tsol_met,  com_leuc, com_linf, obesidad_sino, 
+         sv_fr_res, rr, sv_satoamb_res, sato2, coma2, urea, ureacat, 
+         pcr, pcrcat, death) %>%  
+  tbl_summary(
+    by = "death"
+  ) %>% 
+  add_overall() %>% 
+  bold_labels() -> table3
+
+table3
+```
+
+```{r}
+table3 %>%  
+  as_flex_table() %>%  
+  save_as_docx(path = here("Tables/Table3.docx"))
+```
+
+Estimados puntuales y gráfico de calibración exploratorio:
+
+```{r}
+val_m1 <- rms::val.prob(data_cal$risk_pred_orig, 
+                   data_cal$death2) %>% 
+  round(2)
+
+rescale_brier <- function(x, p, ...) { 
+    format(round(1 - (x / (mean(p) * (1 - mean(p)))), digits = 2), nsmall = 2)
+}
+
+prop_death <- mean(data_cal$death2)
+
+b1 <- rescale_brier(val_m1["Brier"], prop_death) 
+```
+```{r}
+pander(val_m1)
+```
+
+```{r}
+# val_m2 <- rms::val.prob(data_cal$risk_pred_recal, 
+#                    data_cal$death2) %>% 
+#   round(3)
+# 
+# b2 <- rescale_brier(val_m2["Brier"], prop_death) 
+```
+
+```{r}
+# pander(val_m2)
+```
+
+```{r}
+library(predtools)
+calibration_plot(data = data_cal, 
+                 obs = "death2", 
+                 pred = "risk_pred_orig", 
+                 y_lim = c(0, 1),
+                 title = "Calibration plot for validation data")
+```
+
+Intervalos de confianza para estimados puntuales:
+
+```{r}
+boot_val <- function(data, pred, y, nboot, ...){
+    out <- list()
+    for(i in 1:nboot){
+      df <- sample_n(data, nrow(data), replace = TRUE)
+      out[[i]] <- val.prob(df[[pred]],
+                           df[[y]], 
+                           pl = FALSE) 
+    }
+    return(out)
+  }
+```
+
+```{r}
+library(predtools)
+calibration_plot(data = data_cal, 
+                 obs = "death2", 
+                 pred = "risk_pred_recal", 
+                 y_lim = c(0, 1),
+                 title = "Calibration plot for validation data")
+```
+
+```{r}
+library(bstfun)
+ggcalibration(data = data_cal, 
+              y = "death2",
+              x = "risk_pred_recal", 
+              # n.groups = 10, 
+              geom_smooth.args = list(method = "loess", 
+                                      se = TRUE, 
+                                      formula = y ~ x, 
+                                      color = "black"), 
+              geom_function.args = list(colour = "white", 
+                                        linetype = "dashed")) + 
+  geom_abline(intercept = 0, slope = 1, colour = "red", linetype = 2) + 
+  scale_y_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  scale_x_continuous(breaks = seq(0, 1, 0.2), limits = c(0, 1)) + 
+  theme_bw() + 
+  labs(x = "Riesgo predicho de muerte", y = "Riesgo observado de muerte")
+```
+
+
+```{r}
+set.seed(48572)
+boot_vals_m1 <- boot_val(data_cal, "risk_pred_orig", "death2", 1000, 3)
+
+# set.seed(48572)
+# boot_vals_m2 <- boot_val(data_cal, "risk_pred_recal", "death2", 1000, 3)
+```
+
+```{r}
+  calc_ci <- function(metric, boot_vals, n){
+    x <- unlist(map(boot_vals, `[`, c(metric)))
+    if(metric == 'Brier'){x <- as.numeric(rescale_brier(x, prop_death))}
+    paste0("(", round(quantile(x, 0.025), n), " to ", 
+           round(quantile(x, 0.975), n), ")")
+  }
+```
+
+
+```{r}
+decimals <- 2
+m1_c_boot_ci <- calc_ci("C (ROC)", boot_vals_m1, decimals)
+m1_brier_boot_ci <- calc_ci("Brier", boot_vals_m1, decimals)
+m1_emax_boot_ci <- calc_ci("Emax", boot_vals_m1, decimals) 
+m1_eavg_boot_ci <- calc_ci("Eavg", boot_vals_m1, decimals)
+m1_intercept_boot_ci <- calc_ci("Intercept", boot_vals_m1, decimals)
+m1_slope_boot_ci <- calc_ci("Slope", boot_vals_m1, decimals)
+```
+
+```{r}
+# m2_c_boot_ci <- calc_ci("C (ROC)", boot_vals_m2, 3)
+# m2_brier_boot_ci <- calc_ci("Brier", boot_vals_m2, 3)
+# m2_emax_boot_ci <- calc_ci("Emax", boot_vals_m2, 3) 
+# m2_eavg_boot_ci <- calc_ci("Eavg", boot_vals_m2, 3)
+# m2_intercept_boot_ci <- calc_ci("Intercept", boot_vals_m2, 3)
+# m2_slope_boot_ci <- calc_ci("Slope", boot_vals_m2, 3)
+```
+
+```{r}
+model_tab_1 <- tibble(
+    est = c("Intercept", "Slope", "Brier score (rescaled)",
+            "Emax", "Eavg", "C-statistic"),
+    m1_est = c(paste(val_m1["Intercept"], m1_intercept_boot_ci), 
+               paste(val_m1["Slope"], m1_slope_boot_ci), 
+               paste(b1, m1_brier_boot_ci), 
+               paste(val_m1["Emax"], m1_emax_boot_ci),
+               paste(val_m1["Eavg"], m1_eavg_boot_ci),
+               paste(round(val_m1["C (ROC)"], 2), m1_c_boot_ci)) 
+    # m2_est = c(paste(val_m2["Intercept"], m2_intercept_boot_ci ), 
+    #            paste(val_m2["Slope"], m2_slope_boot_ci), 
+    #            paste(b2, m2_brier_boot_ci), 
+    #            paste(val_m2["Emax"], m2_emax_boot_ci),
+    #            paste(val_m2["Eavg"], m2_eavg_boot_ci),
+    #            paste(round(val_m1["C (ROC)"], 3), m2_c_boot_ci))
+    )
+  
+names(model_tab_1) <- c("Performance metrics", "Original Model")
+```
+
+
+## Tabla 4 - Medidas de Calibración y Discirminación del modelo
+
+```{r}
+model_tab_1 %>% 
+  kbl() %>% 
+  kable_styling()
+```
+
+```{r}
+model_tab_1 %>% 
+  flextable() %>% 
+  save_as_docx(path = here("Tables/Table4.docx"))
+```
+
+### Figura 1 - Riesgo observado de muerte según puntaje de ISARIC 4C Mortality
+
+```{r}
+data_cal %>% 
+  group_by(score4c) %>% 
+  summarise(mean = round(100 * mean(death2, na.rm = TRUE), 1))
+```
+
+```{r}
+## general theme
+# theme_set(theme_void()) #base_family = "Roboto")
+# 
+# theme_update(
+#   axis.text.x = element_text(color = "black", face = "bold", size = 20, 
+#                              margin = margin(t = 6)),
+#   axis.text.y = element_text(color = "black", size = 20, hjust = 1, 
+#                              margin = margin(r = 6)), # , family = "Roboto Mono"
+#   axis.line.x = element_line(color = "black", size = 1),
+#   panel.grid.major.y = element_line(color = "grey90", size = .6),
+#   plot.background = element_rect(fill = "white", color = "white"),
+#   plot.margin = margin(rep(20, 4))
+# )
+# 
+# 
+# ## theme for horizontal charts
+# theme_flip <-
+#   theme(
+#     axis.text.x = element_text(face = "plain", size = 20), # family = "Roboto Mono", 
+#     axis.text.y = element_text(face = "bold",  size = 20), # family = "Roboto",
+#     panel.grid.major.x = element_line(color = "grey90", size = .6),
+#     panel.grid.major.y = element_blank(),
+#     legend.position = "top", 
+#     legend.text = element_text(size = 20), # family = "Roboto Mono", 
+#     legend.title = element_text(face = "bold", size = 20, margin = margin(b = 25))
+#   )
+# 
+# ## custom colors
+# my_pal <- rcartocolor::carto_pal(n = 8, name = "Bold")[c(1, 3, 7, 2)]
+```
+
+```{r}
+library(quotidieR)
+library(ggthemes)
+library(ggsci)
+```
+
+```{r}
+g1 <- data_cal %>% 
+  mutate(death = factor(death, levels = c("Vivo", "Muerto"))) %>% 
+  ggplot(aes(x = score4c, fill = death)) +
+    geom_bar(position = "fill") +
+  #   scale_color_manual("Muerte", values = my_pal) +
+  # scale_fill_manual("Muerte", values = my_pal) + 
+    # theme_bw() +
+    xlab("Puntaje de Mortalidad ISARIC 4C") +
+    ylab("Muerte (%)") +
+    theme_Publication() + 
+  scale_fill_jama() + 
+  labs(fill = "")
+
+g1
+```
+
+```{r}
+# data2 %>% 
+#   mutate(death = factor(death, levels = c("Vivo", "Muerto"))) %>% 
+#   drop_na(death, score4c) %>% 
+#   ggplot(aes(y = death, x = score4c, fill = death, color = death)) +
+#     geom_beeswarm(groupOnX=FALSE) +
+#     geom_boxplot(alpha = 0, color = "black") +
+#     theme_bw() +
+#     ylab("Puntaje de Mortalidad ISARIC 4C") +
+#     xlab("") +
+#     scale_fill_brewer(guide = FALSE, palette = "Paired") +
+#     scale_color_brewer(guide = FALSE, palette = "Paired") + 
+#     scale_x_continuous(breaks = seq(0, 21, 3)) -> g2
+# 
+# g2
+```
+
+```{r}
+data2 %>% 
+  mutate(death = factor(death, levels = c("Vivo", "Muerto"))) %>% 
+  drop_na(death, score4c) %>% 
+  ggplot(aes(y = score4c, x = death, fill = death, color = death)) +
+  scale_y_continuous(breaks = seq(0, 21, 3)) +
+  # scale_color_manual(values = my_pal, guide = "none") +
+  # scale_fill_manual(values = my_pal, guide = "none") + 
+  geom_boxplot(
+    fill = "white", # , fill = after_scale(colorspace::lighten(fill, .7))
+    size = 1.5, outlier.shape = NA
+  ) +
+  geom_point(
+    position = position_jitter(width = .1, seed = 0),
+    size = 1, alpha = .5
+  ) +
+  geom_point(
+    position = position_jitter(width = .1, seed = 0),
+    size = 1, stroke = .1, shape = 1, color = "gray90"
+  ) + 
+  theme_Publication() + 
+  scale_color_jama() + 
+  labs(x = "") + 
+  guides(fill = "none") + 
+  guides(color = "none") + 
+  labs(y = "Puntaje ISARIC 4C") -> g2
+
+g2
+```
+
+
+```{r}
+data_cal %>%  
+  ggplot(aes(x = score4c)) +
+    geom_histogram(bins = 101) + 
+    # theme_bw() +
+    ylab("Número de pacientes") +
+    xlab("Puntaje de Mortalidad ISARIC 4C") +
+    scale_x_continuous(breaks = seq(0, 21, 3))  + 
+    theme_Publication() + 
+    scale_color_jama() -> g3
+
+g3
+```
+
+```{r}
+g3 / (g1 | g2)  + plot_annotation(tag_levels = 'A')  -> p1; p1
+```
+
+```{r}
+ggsave(filename = "Figure1.png", 
+      plot = p1, 
+      device = "png", 
+      path = here("Figures/"),
+      scale = 1, 
+      dpi = 600)
+```
+
+### Figura 2 - 
+
+```{r}
+# Function to produce the calibration plots
+
+  cal_plot <- function(data, model_name, pred_var, ...){
+
+    require(tidyverse)
+    require(viridis)
+    require(gridExtra)
+    require(grid)
+
+# The calibration plot        
+    g1 <- mutate(data, bin = ntile(get(pred_var), 10)) %>% 
+          # Bin prediction into 10ths
+      group_by(bin) %>%
+      mutate(n = n(), # Get ests and CIs
+             bin_pred = mean(get(pred_var)), 
+             bin_prob = mean(death2), 
+             se = sqrt((bin_prob * (1 - bin_prob)) / n), 
+             ul = bin_prob + 1.96 * se, 
+             ll = bin_prob - 1.96 * se) %>%
+      ungroup() %>%
+    ggplot(aes(x = bin_pred, y = bin_prob, ymin = ll, ymax = ul)) +
+      geom_pointrange(size = 0.5, color = "#374E55FF") +
+      scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.25)) +
+      scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.25)) +
+      geom_abline(linetype = "dashed", color = "#DF8F44FF") + # 45 degree line indicating perfect calibration
+      # geom_smooth(method = "lm", se = FALSE, linetype = "dashed", 
+      #             color = "black", formula = y ~ -1 + x) + 
+      #             # straight line fit through estimates
+      geom_smooth(aes(x = get(pred_var), y = death2), 
+                  color = "#374E55FF", se = TRUE, method = "loess", alpha = 0.3) + 
+                  # loess fit through estimates
+      xlab("") +
+      ylab("Riesgo observado") +
+      theme_Publication() + 
+      scale_color_jama() +
+      ggtitle(model_name) + 
+      annotate("text", x = 0.75, y = 0.2, label = paste("Calibración a la larga: ", 
+                                                   val_m1["Intercept"], 
+                                                   m1_intercept_boot_ci)) + 
+      annotate("text", x = 0.705, y = 0.1, label = paste("       Pendiente de calibración: ",  
+                                                   val_m1["Slope"], 
+                                                   m1_slope_boot_ci)) 
+
+# The distribution plot        
+    g2 <- ggplot(data, aes(x = get(pred_var))) +
+      geom_histogram(aes(y = ..density..), fill = "#374E55FF", color = "#374E55FF", bins = 101, 
+                 data = ~ subset(., death == "Vivo")) +
+      geom_histogram(aes(y = -..density..), fill = "#DF8F44FF", color = "#DF8F44FF", bins = 101,
+                 data = ~ subset(., death != "Vivo")) +
+      geom_hline(yintercept = 0)+
+      scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, by = 0.25)) +
+      xlab("Riesgo predicho") +
+      ylab("Frecuencia") +
+      theme_Publication() + 
+      theme(panel.grid.minor = element_blank(), 
+            axis.text.y = element_blank()) +  #remove y axis labels
+      annotate("text", x = 1, y = 5, label = "Vivo") + 
+      annotate("text", x = 1, y = -5, label = "Muerto") 
+    
+# Combine them    
+    g <- arrangeGrob(g1, g2, respect = TRUE, heights = c(1, 0.3125), ncol = 1)
+    grid::grid.newpage()
+    grid::grid.draw(g)
+    return(list(g, g1, g2))
+
+  }
+```
+
+```{r}
+mypal = pal_jama("default")(9)
+mypal
+
+library("scales")
+show_col(mypal)
+
+#"#374E55FF"
+# "#DF8F44FF" 
+# "#00A1D5FF"
+```
+
+
+```{r}
+ cal_plot(data_cal, "", "risk_pred_orig") -> p2; p2
+```
+
+```{r}
+p2[[2]] / p2[[3]] + 
+  plot_layout(ncol = 1, heights = c(2, 0.5)) -> plot_calib; plot_calib
+```
+
+
+```{r}
+ggsave(filename = "Figure2.png", 
+      plot = plot_calib, 
+      device = "png", 
+      path = here("Figures/"),
+      scale = 1, 
+      dpi = 600)
+```
+
+```{r}
+library(pROC)
+objroc <- roc(data_cal$death2, data_cal$score4c, auc = T, ci = T)
+```
+
+```{r}
+objroc
+```
+
+```{r}
+library(plotROC)
+basicplot <- 
+  data_cal %>% 
+  ggplot(aes(d = death2, m = score4c)) + 
+  geom_roc(n.cuts = 22, labels = FALSE) + 
+  style_roc(xlab = "1 - Specificity", ylab = "Sensitivity") +   
+  annotate("text", x = .75, y = .15, 
+           label = paste("C-statistic =", val_m1["C (ROC)"], m1_c_boot_ci)) 
+
+basicplot
+```
+```{r}
+class(basicplot)
+```
+
+
+```{r}
+ggsave(filename = "Figure3.png", 
+      plot = basicplot, 
+      device = "png", 
+      path = here("Figures/"),
+      scale = 1, 
+      dpi = 600)
+```
+
+```{r}
+(plot_calib | basicplot) +
+  plot_annotation(tag_levels = list('A', ' ', 'C')) -> plot_comb; plot_comb
+```
+
+
+```{r}
+ggsave(filename = "Figure2b.png", 
+      plot = plot_comb, 
+      device = "png", 
+      path = here("Figures/"),
+      scale = 1,
+      width = 14,
+      height = 7,
+      dpi = 600)
+```
+
+
+### Curvas de decisión
+
+```{r}
+data_cal
+```

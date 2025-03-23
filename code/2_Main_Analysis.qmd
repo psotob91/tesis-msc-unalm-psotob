@@ -1,0 +1,124 @@
+---
+title: "Validación de puntaje de riesgo ISARIC4C para pronóstico de mortalidad en pacientes con COVID-19 evaluados en la admisión al servicio de emergencias en un hospital de referencia nacional en Lima, Perú."
+
+subtitle: "Reporte de análisis estadístico principal"
+
+author: 
+  - name: "Percy Soto Becerra"
+    url: https://github.com/psotob91
+    
+date: last-modified
+
+format:
+  html:
+    self-contained: true
+    number-sections: true
+    number-depth: 3
+    anchor-sections: true
+    code-tools: true
+    code-fold: true
+    code-link: true
+    theme: journal
+    toc: true
+    toc-depth: 3
+    toc-location: right
+    lang: es
+    
+editor: source
+
+execute: 
+  echo: true
+  warning: false
+  output: asis
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+##****************************************************************
+##  1. Configuración de ambiente y paquetes                     **----
+##****************************************************************
+
+# Removing all objects including loaded libraries
+rm(list = ls(all = TRUE))
+
+# Installing and loading packages
+if (!require("pacman")) {
+  install.packages("pacman")
+}
+
+pacman::p_unload("all") 
+
+# Unloading all package except base
+pacman::p_load(
+  tidyverse, 
+  here, 
+  rio, 
+  labelled, 
+  Hmisc, 
+  lubridate,
+  tidyREDCap, 
+  janitor, 
+  skimr, 
+  readxl, 
+  glue, 
+  summarytools, 
+  kableExtra, 
+  rms, 
+  pander, 
+  gtsummary,
+  flextable, 
+  ggbeeswarm, 
+  patchwork, 
+  precrec, 
+  downlit, 
+  xml2, 
+  psfmi, 
+  mice, 
+  pROC, 
+  metamisc, 
+  gridExtra, 
+  grid,
+  gtable
+) 
+
+```
+
+```{r}
+here::here()
+```
+
+## Importar datos
+
+```{r}
+datos <- import(paste0(here::here(), "/Data/Tidy/isaric_data.rds")) %>% 
+  select(sexo, edad, agecat, ncomorb2cat, com_fcc, com_im, com_epoc, 
+         com_er, com_erc_modsev, com_hepa_leve, com_hepa_modsev, com_demen, 
+         com_ecv, com_tia, com_hemip, com_etc, com_dmnc, com_dmc, com_sida, 
+         inm_vih, com_tsol_loc, com_tsol_met,  com_leuc, com_linf, obesidad_sino, 
+         sv_fr_res, rr, sv_satoamb_res, sato2, coma2, urea, ureacat, 
+         pcr, pcrcat, death)
+  
+```
+
+## Análisis con datos imputados
+
+```{r}
+library(mice)
+imp <- mice(datos, m = 5, maxit = 10, method = "pmm")
+```
+
+
+
+# Análisis de casos completos
+
+## Eliminación de datos perdidos
+
+```{r}
+data_cal <- 
+  datos %>% 
+  select(score4c, risk_pred_orig, risk_pred_recal, death, death2) %>% 
+  drop_na(score4c, death2)
+```
+
