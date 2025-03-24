@@ -49,3 +49,4 @@ redcap_to_r_data_set <- function(redcap_data_file, redcap_script_file, ...) {
   # -----------------------------------------------------------
   return(redcap_data)
 }
+
