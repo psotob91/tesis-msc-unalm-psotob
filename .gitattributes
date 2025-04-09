@@ -1,1 +1,58 @@
+# --------------------------
+# Saltos de línea (line endings)
+# --------------------------
+
+# Forzar LF para todos los archivos de texto
 * text=auto eol=lf
+
+# R scripts y notebooks
+*.R text eol=lf
+*.r text eol=lf
+*.Rmd text eol=lf
+*.qmd text eol=lf
+*.Rproj text eol=lf
+
+# Archivos de texto comunes
+*.txt text eol=lf
+*.csv text eol=lf
+*.tsv text eol=lf
+
+# Archivos Markdown
+*.md text eol=lf
+
+# Archivos de LaTeX y similares
+*.tex text eol=lf
+*.sty text eol=lf
+*.cls text eol=lf
+
+# Scripts y configuraciones
+*.sh text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.xml text eol=lf
+*.gitignore text eol=lf
+.gitattributes text eol=lf
+.Rprofile text eol=lf
+
+# --------------------------
+# Archivos binarios o que no deben normalizarse
+# --------------------------
+
+# Archivos binarios (no tocar)
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.docx binary
+*.pptx binary
+*.xlsx binary
+*.xls binary
+*.zip binary
+*.rds binary
+*.RData binary
+*.dta binary
+*.sav binary
+*.sas7bdat binary
+

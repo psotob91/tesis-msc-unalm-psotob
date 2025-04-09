@@ -1,13 +1,50 @@
-.ipynb_checkpoints
+# Ignorar archivos y carpetas temporales de Jupyter
+.ipynb_checkpoints/
 */.ipynb_checkpoints/*
 
-/.quarto/
-/_manuscript
+# Archivos generados por Quarto
+.quarto/
+_manuscript/
 
-/agujournal2019.cls
-/trackchanges.sty
-.Rproj.user
+# Archivos de estilo y clase (puedes quitar si los quieres versionar)
+agujournal2019.cls
+trackchanges.sty
+
+# Archivos temporales de RStudio
+.Rproj.user/
 .Rhistory
-.Rdata
+.RData
+
+# Archivos de autenticación (por seguridad)
 .httr-oauth
+
+# Archivos del sistema (macOS)
 .DS_Store
+
+# Evitar subir datasets en distintos formatos
+*.rds
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.sav
+*.sas7bdat
+*.dta
+*.feather
+*.parquet
+
+# Archivos grandes de resultados
+*.pdf
+*.docx
+*.pptx
+
+# --- renv ---
+# NO ignores estos archivos, ya que deben estar versionados:
+# renv.lock
+# .Rprofile
+# renv/settings.json
+# renv/activate.R
+
+# Por defecto renv ya incluye lo siguiente en su gitignore al hacer renv::init(), pero asegúrate de tenerlo:
+renv/library/
+renv/staging/
