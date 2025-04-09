@@ -5,6 +5,7 @@
 # Archivos generados por Quarto
 .quarto/
 _manuscript/
+_freeze/
 
 # Archivos de estilo y clase (puedes quitar si los quieres versionar)
 agujournal2019.cls
